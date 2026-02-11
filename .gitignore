@@ -1,0 +1,33 @@
+# Node modules
+/node_modules
+
+# Compilation output
+/dist
+
+# pnpm deploy output
+/bundle
+
+# Hardhat Build Artifacts
+/artifacts
+
+# Hardhat compilation (v2) support directory
+/cache
+
+# Typechain output
+/types
+
+# Hardhat coverage reports
+/coverage
+
+# Environment variables
+.env
+
+# Uploaded evidence files (off-chain storage)
+uploads/
+data/evidence/
+
+# OS files
+.DS_Store
+
+# Logs
+*.log

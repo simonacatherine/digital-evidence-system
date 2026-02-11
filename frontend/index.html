@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LEChain – Evidence Dashboard</title>
+
+  <style>
+    :root {
+      --primary-red: #8b1d1d;
+      --light-red: #fbecec;
+      --dark-gray: #333;
+      --border-gray: #ddd;
+      --bg-gray: #f7f7f7;
+    }
+
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      background-color: var(--bg-gray);
+      color: var(--dark-gray);
+    }
+
+    header {
+      background-color: var(--primary-red);
+      color: white;
+      padding: 20px 40px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    header p {
+      margin: 5px 0 0;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .container {
+      padding: 30px 40px;
+    }
+
+    .card {
+      background-color: white;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      color: var(--primary-red);
+      font-size: 18px;
+      border-bottom: 1px solid var(--border-gray);
+      padding-bottom: 8px;
+    }
+
+    input[type="file"],
+    input[type="text"],
+    select {
+      padding: 8px;
+      margin-right: 10px;
+      border: 1px solid var(--border-gray);
+      border-radius: 4px;
+    }
+
+    button {
+      padding: 6px 12px;
+      background-color: var(--primary-red);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background-color: #6f1616;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      background-color: white;
+    }
+
+    th {
+      background-color: var(--light-red);
+      text-align: left;
+      padding: 10px;
+      border-bottom: 2px solid var(--primary-red);
+    }
+
+    td {
+      padding: 10px;
+      border-bottom: 1px solid var(--border-gray);
+      font-size: 14px;
+    }
+
+    .status-VERIFIED { color: green; font-weight: bold; }
+    .status-TAMPERED { color: red; font-weight: bold; }
+    .status-NOT { color: #999; font-weight: bold; }
+
+    footer {
+      text-align: center;
+      padding: 15px;
+      font-size: 12px;
+      color: #666;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <h1>LEChain – Evidence Management System</h1>
+  <p>Blockchain-Based Digital Evidence Chain of Custody</p>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <h2>Upload Evidence</h2>
+    <input type="file" id="evidenceFile" />
+    <input type="text" id="caseId" placeholder="Case ID" />
+    <button id="uploadBtn">Upload</button>
+    <p id="uploadStatus"></p>
+  </div>
+
+  <div class="card">
+    <h2>Evidence Dashboard</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Evidence ID</th>
+          <th>Case ID</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="evidenceTable"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<footer>
+  © LEChain Project – Digital Forensics & Blockchain
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
