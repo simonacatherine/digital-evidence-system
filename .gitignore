@@ -25,6 +25,7 @@
 # Uploaded evidence files (off-chain storage)
 uploads/
 data/evidence/
+data/records/
 
 # OS files
 .DS_Store

@@ -1,12 +1,9 @@
 const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
-const {ethers} = require("ethers");
+const { ethers } = require("ethers");
+const pool = require("../backend/db");
 
-const BASE_DIR = path.join(__dirname, "..");
-const RECORDS_DIR = path.join(BASE_DIR, "data", "records");
-
-const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const RPC_URL = "http://127.0.0.1:8545";
 
 const ABI = [
@@ -14,48 +11,46 @@ const ABI = [
   "function getEvidence(string evidenceId) view returns (tuple(string evidenceHash,string caseId,string uploaderId,uint256 timestamp))"
 ];
 
-//connecting to bc
+// Blockchain connection
 const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
 const signer = provider.getSigner(0);
 const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
 
-async function registerEvidence(evidenceId){
-  const recordPath = path.join(RECORDS_DIR, `${evidenceId}.json`);
+async function registerEvidence(evidenceId) {
 
-  if(!fs.existsSync(recordPath)){
-    throw new Error("Evidence record not found");
+  // Fetch evidence from database
+  const result = await pool.query(
+    "SELECT * FROM evidence WHERE evidence_id = $1",
+    [evidenceId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error("Evidence not found in database");
   }
 
-  const record = JSON.parse(fs.readFileSync(recordPath));
+  const record = result.rows[0];
 
-  if(!fs.existsSync(record.storagePath)){
+  if (!fs.existsSync(record.storage_path)) {
     throw new Error("Stored evidence file missing");
   }
 
-  //read evidence & hash
-  const fileData = fs.readFileSync(record.storagePath);
+  // Read file and hash
+  const fileData = fs.readFileSync(record.storage_path);
   const hash = crypto.createHash("sha256").update(fileData).digest("hex");
 
-  //blockchain write
+  // Write to blockchain
   const tx = await contract.registerEvidence(
-    record.evidenceId,
+    record.evidence_id,
     hash,
-    record.caseId,
-    record.uploaderId
+    record.case_id,
+    String(record.uploader_id)
   );
 
   const receipt = await tx.wait();
 
-  //update record after success
-  record.hashSHA256 = hash;
-  record.blockNumber = receipt.blockNumber;
-  record.status = "REGISTERED";
-  record.registeredAt = new Date().toISOString();
-
-  fs.writeFileSync(recordPath, JSON.stringify(record, null, 2));
-
-  return{
-    evidenceId: record.evidenceId,
+  // Return data (DB status updated in server.js)
+  return {
+    evidenceId: record.evidence_id,
     hashSHA256: hash,
     blockNumber: receipt.blockNumber
   };

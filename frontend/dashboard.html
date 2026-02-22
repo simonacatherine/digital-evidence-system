@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LEChain Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .search-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .search-results-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    .search-results-table th,
+    .search-results-table td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .similarity-high {
+      color: green;
+      font-weight: bold;
+    }
+
+    .similarity-medium {
+      color: orange;
+    }
+
+    .similarity-low {
+      color: red;
+    }
+
+    .result-type {
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <span id="roleDisplay"></span>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<!-- upload section -->
+<div class="card" id="uploadSection">
+  <h3>Upload Evidence</h3>
+  <input type="file" id="file">
+  <input type="text" id="caseId" placeholder="Case ID">
+  <button id="uploadBtn">Upload</button>
+  <p id="uploadStatus"></p>
+</div>
+
+<!-- semantic search section -->
+<div class="card">
+  <h3>Semantic Search (Registered Evidence Only)</h3>
+
+  <div class="search-row">
+    <input 
+      type="text" 
+      id="searchQuery" 
+      placeholder="Enter search text (e.g., blood stained knife)"
+    >
+
+    <input 
+      type="text" 
+      id="searchCaseId" 
+      placeholder="Optional Case ID"
+    >
+
+    <button onclick="performSemanticSearch()">Search</button>
+  </div>
+
+  <div id="searchResults"></div>
+</div>
+
+<!-- evidence table -->
+<div class="card">
+  <h3>Evidence Dashboard</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Case</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="table"></tbody>
+  </table>
+</div>
+
+<script src="dashboard.js"></script>
+<script>
+
+async function performSemanticSearch() {
+
+  const query = document.getElementById("searchQuery").value.trim();
+  const caseId = document.getElementById("searchCaseId").value.trim();
+  const resultsDiv = document.getElementById("searchResults");
+
+  if (!query) {
+    alert("Enter search text");
+    return;
+  }
+
+  resultsDiv.innerHTML = "Searching...";
+
+  try {
+
+    const res = await fetch("http://localhost:5000/semantic-search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + localStorage.getItem("token")
+      },
+      body: JSON.stringify({ query, caseId: caseId || null })
+    });
+
+    const data = await res.json();
+
+    if (!data.results || data.results.length === 0) {
+      resultsDiv.innerHTML = "<p>No relevant matches found.</p>";
+      return;
+    }
+
+    let html = `
+      <table class="search-results-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Case</th>
+            <th>Type</th>
+            <th>Similarity</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    data.results.forEach(r => {
+
+      let similarityClass = "similarity-low";
+
+      if (r.similarity > 0.5) similarityClass = "similarity-high";
+      else if (r.similarity > 0.3) similarityClass = "similarity-medium";
+
+      html += `
+        <tr>
+          <td>${r.evidence_id}</td>
+          <td>${r.case_id}</td>
+          <td class="result-type">${r.type}</td>
+          <td class="${similarityClass}">
+            ${r.similarity.toFixed(4)}
+          </td>
+          <td>
+            <button onclick="viewFile('${r.evidence_id}')">View</button>
+          </td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table>`;
+
+    resultsDiv.innerHTML = html;
+
+  } catch (err) {
+    resultsDiv.innerHTML = "Error performing search.";
+  }
+}
+
+</script>
+
+</body>
+</html>

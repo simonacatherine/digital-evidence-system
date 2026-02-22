@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin Panel</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="topbar">
+  <span>Admin Panel</span>
+  <button onclick="logout()">Logout</button>
+</div>
+
+<div class="card">
+  <h3>Create User</h3>
+  <input type="text" id="newUser" placeholder="Username">
+  <input type="password" id="newPass" placeholder="Password">
+  <select id="newRole">
+    <option>INVESTIGATING_OFFICER</option>
+    <option>FORENSIC_ANALYST</option>
+    <option>PUBLIC_PROSECUTOR</option>
+    <option>DEFENCE_ADVOCATE</option>
+    <option>JUDGE</option>
+  </select>
+  <button id="createUserBtn">Create</button>
+</div>
+
+<div class="card">
+  <h3>Audit Logs</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Action</th>
+        <th>Evidence</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody id="logs"></tbody>
+  </table>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>
