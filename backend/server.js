@@ -75,9 +75,17 @@ app.post("/login", async (req, res) => {
 // auth
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "No token provided" });
+  const queryToken = req.query.token;
 
-  const token = authHeader.split(" ")[1];
+  let token;
+
+  if (authHeader) {
+    token = authHeader.split(" ")[1];
+  } else if (queryToken) {
+    token = queryToken;
+  } else {
+    return res.status(401).json({ error: "No token provided" });
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -164,14 +172,12 @@ app.post(
 
       const evidenceId = crypto.randomUUID();
       const caseId = req.body.caseId;
-
       const originalName = req.file.originalname || "";
 
-      // fixed extension detection
       const ext = path
         .extname(originalName)
         .toLowerCase()
-        .replace(/\s/g, ""); // remove weird spaces
+        .replace(/\s/g, "");
 
       const storedPath = path.join(
         EVIDENCE_DIR,
@@ -183,8 +189,10 @@ app.post(
       console.log("Detected extension:", ext);
 
       const isTextFile = ext.endsWith(".txt");
+      const isVideoFile =
+        ext === ".mp4" || ext === ".avi" || ext === ".mov";
 
-      // text  file
+      /* ================= TEXT FILE ================= */
       if (isTextFile) {
 
         const textContent = fs.readFileSync(storedPath, "utf-8");
@@ -192,7 +200,7 @@ app.post(
         const sentences = textContent
           .split(/[.!?]\s+/)
           .map(s => s.trim())
-          .filter(s => s.length > 20); // ignore tiny fragments
+          .filter(s => s.length > 20);
 
         for (const sentence of sentences) {
 
@@ -202,13 +210,12 @@ app.post(
           );
 
           const rawEmbedding = aiResponse.data.embedding;
-
           const textEmbedding = `[${rawEmbedding.join(",")}]`;
 
           await pool.query(
             `INSERT INTO evidence
-            (evidence_id, case_id, uploader_id, storage_path, status, text_embedding, chunk_text)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            (evidence_id, case_id, uploader_id, storage_path, status, text_embedding, chunk_text, file_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [
               evidenceId,
               caseId,
@@ -216,15 +223,43 @@ app.post(
               storedPath,
               "NOT_REGISTERED",
               textEmbedding,
-              sentence
+              sentence,
+              "TEXT"
             ]
           );
         }
+
       }
 
+      /* ================= VIDEO FILE ================= */
+      else if (isVideoFile) {
+
+        const videoResponse = await axios.post(
+          "http://localhost:8000/analyze-video",
+          { video_path: storedPath }
+        );
+
+        const detections = videoResponse.data.detections || [];
+
+        await pool.query(
+          `INSERT INTO evidence
+          (evidence_id, case_id, uploader_id, storage_path, status, video_metadata, file_type)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            evidenceId,
+            caseId,
+            req.user.id,
+            storedPath,
+            "NOT_REGISTERED",
+            JSON.stringify(detections),
+            "VIDEO"
+          ]
+        );
+      }
+
+      /* ================= IMAGE FILE ================= */
       else {
 
-        // image embeddings
         const aiResponse = await axios.post(
           "http://localhost:8000/embed-image",
           { image_path: storedPath }
@@ -240,23 +275,19 @@ app.post(
 
         const imageEmbedding = `[${rawEmbedding.join(",")}]`;
 
-
-        // yolo object detection
         const yoloResponse = await axios.post(
           "http://localhost:8000/detect-objects",
           { image_path: storedPath }
         );
 
         console.log("YOLO RESPONSE:", yoloResponse.data);
-        
+
         const detectedObjects = yoloResponse.data.objects || [];
 
-
-        // insert into database
         await pool.query(
           `INSERT INTO evidence
-          (evidence_id, case_id, uploader_id, storage_path, status, embedding, detected_objects)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          (evidence_id, case_id, uploader_id, storage_path, status, embedding, detected_objects, file_type)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             evidenceId,
             caseId,
@@ -264,12 +295,13 @@ app.post(
             storedPath,
             "NOT_REGISTERED",
             imageEmbedding,
-            detectedObjects
+            detectedObjects,
+            "IMAGE"
           ]
         );
       }
 
-      // audit log
+      /* ================= AUDIT LOG ================= */
       await pool.query(
         `INSERT INTO audit_logs (user_id, action, evidence_id)
          VALUES ($1, $2, $3)`,
@@ -352,7 +384,7 @@ app.get(
   }
 );
 
-// semantic search
+// semantic search (clean weighted scoring)
 app.post(
   "/semantic-search",
   authenticate,
@@ -365,7 +397,9 @@ app.post(
         return res.status(400).json({ error: "Query text is required" });
       }
 
-      // 1. get doc embedding
+      const queryLower = query.toLowerCase().trim();
+
+      //1. GET DOCUMENT EMBEDDING (384)
       const docResponse = await axios.post(
         "http://localhost:8000/embed-document",
         { text: query }
@@ -379,7 +413,7 @@ app.post(
 
       const docEmbedding = `[${docEmbeddingRaw.join(",")}]`;
 
-      // 2. get clip text embedding
+      //2.GET CLIP TEXT EMBEDDING (512)
       const clipResponse = await axios.post(
         "http://localhost:8000/embed-text-clip",
         { text: query }
@@ -393,7 +427,7 @@ app.post(
 
       const clipEmbedding = `[${clipEmbeddingRaw.join(",")}]`;
 
-      // 3. search documents
+      //3. SEARCH DOCUMENTS
       let docSql = `
         SELECT 
           evidence_id,
@@ -419,12 +453,12 @@ app.post(
 
       docSql += `
         ORDER BY text_embedding <=> $1
-        LIMIT 5
+        LIMIT 10
       `;
 
       const docResults = await pool.query(docSql, docValues);
 
-      // 4. search images
+      //4. SEARCH IMAGE
       let imgSql = `
         SELECT 
           evidence_id,
@@ -450,46 +484,153 @@ app.post(
 
       imgSql += `
         ORDER BY embedding <=> $1
-        LIMIT 5
+        LIMIT 10
       `;
 
       const imgResults = await pool.query(imgSql, imgValues);
 
-      // 5. merge results
+      //5. search videos
+      let videoSql = `
+        SELECT 
+          evidence_id,
+          case_id,
+          uploader_id,
+          storage_path,
+          status,
+          created_at,
+          video_metadata,
+          0 AS similarity,
+          'VIDEO' as type
+        FROM evidence
+        WHERE status = 'REGISTERED'
+        AND video_metadata IS NOT NULL
+      `;
+
+      const videoValues = [];
+
+      if (caseId) {
+        videoSql += ` AND case_id = $1`;
+        videoValues.push(caseId);
+      }
+
+      videoSql += ` LIMIT 10`;
+
+      const videoResults = await pool.query(videoSql, videoValues);
+
+      //6. STRUCTURED SCORING
       const combined = [
         ...docResults.rows,
-        ...imgResults.rows
+        ...imgResults.rows,
+        ...videoResults.rows
       ];
 
-      const queryLower = query.toLowerCase();
+      let maxVideoScore = 0;
+      const videoScoreMap = {};
 
       combined.forEach(r => {
+        if (r.type === "VIDEO" && r.video_metadata) {
 
-        // keyword boost (documents)
-        if (
-          r.chunk_text &&
-          r.chunk_text.toLowerCase().includes(queryLower)
-        ) {
-          r.similarity += 0.25;
-        }
+          let events = [];
+          try {
+            events = typeof r.video_metadata === "string"
+              ? JSON.parse(r.video_metadata)
+              : r.video_metadata;
+          } catch {}
 
-        // yolo object boost (images)
-        if (
-          r.detected_objects &&
-          r.detected_objects.some(obj =>
-            queryLower.includes(obj.toLowerCase())
-          )
-        ) {
-          r.similarity += 0.4;
+          const queryWords = queryLower.split(/\s+/);
+
+          let frequency = 0;
+          let confidenceSum = 0;
+
+          events.forEach(event => {
+            if (event.label && event.confidence) {
+
+              const labelLower = event.label.toLowerCase();
+
+              queryWords.forEach(word => {
+                if (labelLower.includes(word) || word.includes(labelLower)) {
+                  frequency++;
+                  confidenceSum += event.confidence;
+                }
+              });
+            }
+          });
+
+          // Avoid divide by zero
+          const avgConfidence = frequency > 0
+            ? confidenceSum / frequency
+            : 0;
+
+          // Weighted internal video score
+          const videoScore =
+            (0.7 * frequency) +
+            (0.3 * avgConfidence * 10);
+
+          videoScoreMap[r.evidence_id] = videoScore;
+
+          if (videoScore > maxVideoScore) {
+            maxVideoScore = videoScore;
+          }
         }
       });
 
-      console.log("AFTER BOOST:", combined);
+      const weightedResults = combined.map(r => {
 
-      // Sort by similarity descending
-      combined.sort((a, b) => b.similarity - a.similarity);
+        //1. Semantic score (clamped)
+        const semantic_score = r.type === "VIDEO" ? 0 : Math.max(0, r.similarity || 0);
 
-      // audit log
+        //2. Keyword exact match (documents only)
+        let keyword_score = 0;
+        if (
+          r.type === "DOCUMENT" &&
+          r.chunk_text &&
+          r.chunk_text.toLowerCase().includes(queryLower)
+        ) {
+          keyword_score = 1;
+        }
+
+        //3. Object match score (images only)
+        let object_score = 0;
+        if (
+          r.type === "IMAGE" &&
+          r.detected_objects &&
+          r.detected_objects.some(obj =>
+            queryLower.includes(obj.toLowerCase()) ||
+            obj.toLowerCase().includes(queryLower)
+          )
+        ) {
+          object_score = 1;
+        }
+
+        //4. Object score (videos)
+        if (r.type === "VIDEO") {
+
+          const videoScore = videoScoreMap[r.evidence_id] || 0;
+
+          if (maxVideoScore > 0) {
+            object_score = videoScore / maxVideoScore;
+          }
+        }
+
+        //5. Final weighted score
+        const final_score =
+            0.6 * semantic_score +
+            0.3 * object_score +
+            0.1 * keyword_score;
+
+        return {
+          ...r,
+          semantic_score,
+          keyword_score,
+          object_score,
+          final_score
+        };
+      });
+
+      //6. Sort by final_score descending
+      weightedResults.sort((a, b) => b.final_score - a.final_score);
+
+      //7. AUDIT LOG
       await pool.query(
         `INSERT INTO audit_logs (user_id, action)
          VALUES ($1, $2)`,
@@ -499,7 +640,7 @@ app.post(
       res.json({
         query,
         caseId: caseId || null,
-        results: combined.slice(0, 5)
+        results: weightedResults.slice(0, 5)
       });
 
     } catch (err) {
@@ -518,7 +659,7 @@ app.get(
     try {
       const dbEvidence = await pool.query("SELECT * FROM evidence");
 
-      const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+      const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0x610178dA211FEF7D417bC0e6FeD39F05609AD788";
       const provider = new ethers.providers.JsonRpcProvider("http://127.0.0.1:8545");
 
       const abi = [
@@ -616,9 +757,64 @@ app.get(
         [req.user.id, "VIEW", id]
       );
 
-      res.sendFile(path.resolve(record.storage_path));
+      const filePath = path.resolve(record.storage_path);
+      const ext = path.extname(filePath).toLowerCase();
+
+      /* ================= VIDEO STREAMING ================= */
+      if (ext === ".mp4" || ext === ".mov" || ext === ".avi") {
+
+        const stat = fs.statSync(filePath);
+        const fileSize = stat.size;
+        const range = req.headers.range;
+
+        const contentType =
+          ext === ".mp4" ? "video/mp4" :
+          ext === ".mov" ? "video/quicktime" :
+          "video/x-msvideo";
+
+        if (range) {
+          const parts = range.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10);
+          const end = parts[1]
+            ? parseInt(parts[1], 10)
+            : fileSize - 1;
+
+          const chunkSize = (end - start) + 1;
+          const fileStream = fs.createReadStream(filePath, { start, end });
+
+          res.writeHead(206, {
+            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+            "Accept-Ranges": "bytes",
+            "Content-Length": chunkSize,
+            "Content-Type": contentType
+          });
+
+          fileStream.pipe(res);
+
+        } else {
+          res.writeHead(200, {
+            "Content-Length": fileSize,
+            "Content-Type": contentType
+          });
+
+          fs.createReadStream(filePath).pipe(res);
+        }
+
+        return;
+      }
+
+      /* ================= NON-VIDEO FILES ================= */
+      let contentType = "application/octet-stream";
+
+      if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
+      if (ext === ".png") contentType = "image/png";
+      if (ext === ".txt") contentType = "text/plain";
+
+      res.setHeader("Content-Type", contentType);
+      res.sendFile(filePath);
 
     } catch (err) {
+      console.error("VIEW ERROR:", err);
       res.status(500).send("Error viewing evidence");
     }
   }

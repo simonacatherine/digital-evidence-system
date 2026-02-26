@@ -11,6 +11,8 @@ contract EvidenceRegistry{
     }
     mapping(string => Evidence) private evidenceStore;
 
+    uint256 public evidenceCount;
+
     event EvidenceRegistered(
         string evidenceId,
         string evidenceHash,
@@ -34,6 +36,8 @@ contract EvidenceRegistry{
             block.timestamp
         );
 
+        evidenceCount++; 
+
         emit EvidenceRegistered(
             evidenceId,
             evidenceHash,
@@ -48,4 +52,5 @@ contract EvidenceRegistry{
         require(bytes(evidenceStore[evidenceId].evidenceHash).length != 0, "Evidence not found");
         return evidenceStore[evidenceId];
     }
+
 }

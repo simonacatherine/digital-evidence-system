@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const { ethers } = require("ethers");
 const pool = require("../backend/db");
 
-const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0x610178dA211FEF7D417bC0e6FeD39F05609AD788";
 const RPC_URL = "http://127.0.0.1:8545";
 
 const ABI = [

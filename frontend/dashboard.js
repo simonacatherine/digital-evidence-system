@@ -21,7 +21,8 @@ function logout() {
   window.location.href = "login.html";
 }
 
-// load evidence table
+/* ================= LOAD EVIDENCE ================= */
+
 async function loadEvidence() {
   try {
     const res = await fetch(`${API}/verify`, {
@@ -69,7 +70,8 @@ async function loadEvidence() {
   }
 }
 
-// upload
+/* ================= UPLOAD ================= */
+
 async function uploadEvidence() {
   const file = document.getElementById("file").files[0];
   const caseId = document.getElementById("caseId").value;
@@ -95,7 +97,8 @@ async function uploadEvidence() {
   loadEvidence();
 }
 
-// register
+/* ================= REGISTER ================= */
+
 async function registerEvidence(id) {
   await fetch(`${API}/register`, {
     method: "POST",
@@ -109,7 +112,8 @@ async function registerEvidence(id) {
   loadEvidence();
 }
 
-// verify
+/* ================= VERIFY ================= */
+
 async function verifyEvidence(id) {
   const res = await fetch(`${API}/verify`, {
     headers: { Authorization: "Bearer " + token }
@@ -127,22 +131,15 @@ async function verifyEvidence(id) {
   loadEvidence();
 }
 
-// view file
-async function viewFile(id) {
-  const res = await fetch(`${API}/evidence/${id}/view`, {
-    headers: { Authorization: "Bearer " + token }
-  });
+/* ================= VIEW FILE ================= */
 
-  if (res.status === 403) {
-    alert("Access denied");
-    return;
-  }
-
-  const blob = await res.blob();
-  window.open(URL.createObjectURL(blob));
+function viewFile(id) {
+  const url = `${API}/evidence/${id}/view?token=${token}`;
+  window.open(url, "_blank");
 }
 
-// semantic seaarch
+/* ================= SEMANTIC SEARCH ================= */
+
 async function performSemanticSearch() {
   const query = document.getElementById("searchQuery").value.trim();
   const caseId = document.getElementById("searchCaseId").value.trim();
@@ -183,7 +180,8 @@ async function performSemanticSearch() {
   }
 }
 
-// display search results
+/* ================= DISPLAY SEARCH RESULTS ================= */
+
 function displaySearchResults(results) {
   const container = document.getElementById("searchResults");
   container.innerHTML = "";
@@ -193,8 +191,8 @@ function displaySearchResults(results) {
     return;
   }
 
-  // Similarity threshold
-  const filtered = results.filter(r => r.similarity > 0.20);
+  // IMPORTANT: use final_score only
+  const filtered = results.filter(r => (r.final_score ?? 0) > 0);
 
   if (filtered.length === 0) {
     container.innerHTML = "<p>No strong matches found.</p>";
@@ -210,7 +208,7 @@ function displaySearchResults(results) {
         <th>ID</th>
         <th>Case</th>
         <th>Type</th>
-        <th>Similarity</th>
+        <th>Score</th>
         <th>Action</th>
       </tr>
     </thead>
@@ -220,18 +218,23 @@ function displaySearchResults(results) {
   const tbody = table.querySelector("tbody");
 
   filtered.forEach(r => {
+
+    const score = r.final_score ?? 0;
+
+    console.log("UI SCORE:", score); // TEMP DEBUG
+
     const row = document.createElement("tr");
 
-    let similarityClass = "similarity-low";
-    if (r.similarity > 0.5) similarityClass = "similarity-high";
-    else if (r.similarity > 0.3) similarityClass = "similarity-medium";
+    let scoreClass = "similarity-low";
+    if (score > 0.5) scoreClass = "similarity-high";
+    else if (score > 0.3) scoreClass = "similarity-medium";
 
     row.innerHTML = `
       <td>${r.evidence_id}</td>
       <td>${r.case_id}</td>
       <td>${r.type}</td>
-      <td class="${similarityClass}">
-        ${parseFloat(r.similarity).toFixed(4)}
+      <td class="${scoreClass}">
+        ${score.toFixed(4)}
       </td>
       <td>
         <button onclick="viewFile('${r.evidence_id}')">View</button>
@@ -239,6 +242,8 @@ function displaySearchResults(results) {
     `;
 
     tbody.appendChild(row);
+
+    /* ==== DETAILS ==== */
 
     const detailRow = document.createElement("tr");
     const detailCell = document.createElement("td");
@@ -248,7 +253,6 @@ function displaySearchResults(results) {
 
     let detailsHTML = "";
 
-    // Show matched sentence for documents
     if (r.chunk_text) {
       detailsHTML += `
         <strong>Matched Text:</strong>
@@ -258,7 +262,6 @@ function displaySearchResults(results) {
       `;
     }
 
-    // Show detected objects for images
     if (r.detected_objects && r.detected_objects.length > 0) {
       detailsHTML += `
         <strong>Detected Objects:</strong>

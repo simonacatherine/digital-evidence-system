@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify
 from ultralytics import YOLO
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import cv2
 
 yolo_model = YOLO("yolov8m.pt")
 app = Flask(__name__)
@@ -104,6 +105,54 @@ def detect_objects():
     return jsonify({
         "objects": list(detected)
     })
+
+# video
+@app.route("/analyze-video", methods=["POST"])
+def analyze_video():
+    try:
+        video_path = request.json["video_path"]
+
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+
+        frame_interval = int(fps * 1)  # 1 frame per second
+
+        frame_count = 0
+        detections = []
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_count % frame_interval == 0:
+                timestamp = frame_count / fps
+
+                results = yolo_model(frame)
+
+                for r in results:
+                    for box in r.boxes:
+                        cls_id = int(box.cls[0])
+                        label = yolo_model.names[cls_id]
+                        conf = float(box.conf[0])
+
+                        detections.append({
+                            "label": label,
+                            "timestamp": timestamp,
+                            "confidence": conf
+                        })
+
+            frame_count += 1
+
+        cap.release()
+
+        return jsonify({
+            "detections": detections
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 
 @app.route("/")
 def home():
