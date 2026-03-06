@@ -2,18 +2,41 @@ const API = "http://localhost:5000";
 const token = localStorage.getItem("token");
 const role = localStorage.getItem("role");
 
-window.registerEvidence = registerEvidence;
-window.verifyEvidence = verifyEvidence;
-window.viewFile = viewFile;
-window.performSemanticSearch = performSemanticSearch;
-
 if (!token) window.location.href = "login.html";
 
 document.getElementById("roleDisplay").innerText =
   "Logged in as: " + role;
 
+const legalRoles = [
+  "FORENSIC_ANALYST",
+  "INVESTIGATING_OFFICER",
+  "PUBLIC_PROSECUTOR",
+  "DEFENCE_ADVOCATE",
+  "JUDGE"
+];
+
+let selectedCase = "";
+function updateSelectedCase() {
+  const selector = document.getElementById("caseSelector");
+  selectedCase = selector.value;
+
+  loadEvidence();
+}
+
+if (legalRoles.includes(role)) {
+  document.getElementById("analysisSection").style.display = "block";
+}
+
+if (role !== "FORENSIC_ANALYST") {
+  document.getElementById("createReportForm").style.display = "none";
+}
+
 if (role !== "INVESTIGATING_OFFICER") {
   document.getElementById("uploadSection").style.display = "none";
+}
+
+if (role !== "INVESTIGATING_OFFICER") {
+  document.getElementById("createCaseSection").style.display = "none";
 }
 
 function logout() {
@@ -21,11 +44,10 @@ function logout() {
   window.location.href = "login.html";
 }
 
-/* ================= LOAD EVIDENCE ================= */
-
 async function loadEvidence() {
+  if (!selectedCase) return;
   try {
-    const res = await fetch(`${API}/verify`, {
+    const res = await fetch(`${API}/verify?caseId=${selectedCase}`, {
       headers: { Authorization: "Bearer " + token }
     });
 
@@ -70,22 +92,81 @@ async function loadEvidence() {
   }
 }
 
-/* ================= UPLOAD ================= */
+async function loadCases() {
+  try {
+    const res = await fetch(`${API}/cases`, {
+      headers: { Authorization: "Bearer " + token }
+    });
 
+    const cases = await res.json();
+    const selector = document.getElementById("caseSelector");
+
+    selector.innerHTML = `<option value="">-- Select Case --</option>`;
+
+    cases.forEach(c => {
+      const option = document.createElement("option");
+      option.value = c.case_id;
+      option.textContent = `${c.case_id} - ${c.case_name}`;
+      selector.appendChild(option);
+    });
+
+  } catch (err) {
+    console.error("Failed to load cases");
+  }
+}
+
+async function createCase() {
+  const case_id = document.getElementById("newCaseId").value.trim();
+  const case_name = document.getElementById("newCaseName").value.trim();
+
+  if (!case_id || !case_name) {
+    alert("Case ID and name required");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/cases`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ case_id, case_name })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Failed to create case");
+      return;
+    }
+
+    alert("Case created successfully");
+
+    document.getElementById("newCaseId").value = "";
+    document.getElementById("newCaseName").value = "";
+
+    loadCases();
+
+  } catch (err) {
+    console.error(err);
+    alert("Error creating case");
+  }
+}
+
+// upload
 async function uploadEvidence() {
   const file = document.getElementById("file").files[0];
-  const caseId = document.getElementById("caseId").value;
-
-  if (!file || !caseId) {
+  if (!file || !selectedCase) {
     alert("File and Case ID required");
     return;
   }
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("caseId", caseId);
+  formData.append("caseId", selectedCase);
 
-  await fetch(`${API}/upload`, {
+  await fetch(`${API}/evidence/upload`, {
     method: "POST",
     headers: { Authorization: "Bearer " + token },
     body: formData
@@ -97,8 +178,7 @@ async function uploadEvidence() {
   loadEvidence();
 }
 
-/* ================= REGISTER ================= */
-
+// register
 async function registerEvidence(id) {
   await fetch(`${API}/register`, {
     method: "POST",
@@ -112,8 +192,7 @@ async function registerEvidence(id) {
   loadEvidence();
 }
 
-/* ================= VERIFY ================= */
-
+// verify
 async function verifyEvidence(id) {
   const res = await fetch(`${API}/verify`, {
     headers: { Authorization: "Bearer " + token }
@@ -131,18 +210,16 @@ async function verifyEvidence(id) {
   loadEvidence();
 }
 
-/* ================= VIEW FILE ================= */
-
+// view file
 function viewFile(id) {
   const url = `${API}/evidence/${id}/view?token=${token}`;
   window.open(url, "_blank");
 }
 
-/* ================= SEMANTIC SEARCH ================= */
-
+// semantic search
 async function performSemanticSearch() {
   const query = document.getElementById("searchQuery").value.trim();
-  const caseId = document.getElementById("searchCaseId").value.trim();
+  const caseId = selectedCase;
 
   if (!query) {
     alert("Please enter search text");
@@ -153,7 +230,7 @@ async function performSemanticSearch() {
   container.innerHTML = "Searching...";
 
   try {
-    const response = await fetch(`${API}/semantic-search`, {
+    const response = await fetch(`${API}/search/semantic-search`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -180,22 +257,13 @@ async function performSemanticSearch() {
   }
 }
 
-/* ================= DISPLAY SEARCH RESULTS ================= */
-
+// display search results
 function displaySearchResults(results) {
   const container = document.getElementById("searchResults");
   container.innerHTML = "";
 
-  if (!results || results.length === 0) {
+  if (!Array.isArray(results) || results.length === 0) {
     container.innerHTML = "<p>No relevant matches found.</p>";
-    return;
-  }
-
-  // IMPORTANT: use final_score only
-  const filtered = results.filter(r => (r.final_score ?? 0) > 0);
-
-  if (filtered.length === 0) {
-    container.innerHTML = "<p>No strong matches found.</p>";
     return;
   }
 
@@ -217,17 +285,14 @@ function displaySearchResults(results) {
 
   const tbody = table.querySelector("tbody");
 
-  filtered.forEach(r => {
-
+  results.forEach(r => {
     const score = r.final_score ?? 0;
-
-    console.log("UI SCORE:", score); // TEMP DEBUG
-
-    const row = document.createElement("tr");
 
     let scoreClass = "similarity-low";
     if (score > 0.5) scoreClass = "similarity-high";
     else if (score > 0.3) scoreClass = "similarity-medium";
+
+    const row = document.createElement("tr");
 
     row.innerHTML = `
       <td>${r.evidence_id}</td>
@@ -242,41 +307,6 @@ function displaySearchResults(results) {
     `;
 
     tbody.appendChild(row);
-
-    /* ==== DETAILS ==== */
-
-    const detailRow = document.createElement("tr");
-    const detailCell = document.createElement("td");
-    detailCell.colSpan = 5;
-    detailCell.style.background = "#f9f9f9";
-    detailCell.style.padding = "10px";
-
-    let detailsHTML = "";
-
-    if (r.chunk_text) {
-      detailsHTML += `
-        <strong>Matched Text:</strong>
-        <div style="margin-top:5px;color:#444">
-          ${r.chunk_text}
-        </div>
-      `;
-    }
-
-    if (r.detected_objects && r.detected_objects.length > 0) {
-      detailsHTML += `
-        <strong>Detected Objects:</strong>
-        <div style="margin-top:5px;color:#444">
-          ${r.detected_objects.join(", ")}
-        </div>
-      `;
-    }
-
-    if (detailsHTML !== "") {
-      detailCell.innerHTML = detailsHTML;
-      detailRow.appendChild(detailCell);
-      tbody.appendChild(detailRow);
-    }
-
   });
 
   container.appendChild(table);
@@ -286,4 +316,111 @@ document
   .getElementById("uploadBtn")
   ?.addEventListener("click", uploadEvidence);
 
-loadEvidence();
+loadCases();
+
+// load reports
+async function loadReports() {
+  const evidenceId = document.getElementById("analysisEvidenceId").value;
+
+  if (!evidenceId) {
+    alert("Enter Evidence ID");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/analysis/${evidenceId}/reports`, {
+      headers: { Authorization: "Bearer " + token }
+    });
+
+    const data = await res.json();
+    const container = document.getElementById("reportsContainer");
+    container.innerHTML = "";
+
+    if (!data.reports || data.reports.length === 0) {
+      container.innerHTML = "No reports found.";
+      return;
+    }
+
+    data.reports.forEach(r => {
+      const div = document.createElement("div");
+      div.style.border = "1px solid #ccc";
+      div.style.padding = "8px";
+      div.style.marginBottom = "10px";
+
+      div.innerHTML = `
+        <strong>${r.report_title}</strong><br>
+        <strong>Findings:</strong> ${r.findings}<br>
+        <strong>Conclusion:</strong> ${r.conclusion || "N/A"}<br>
+        <strong>Confidence:</strong> ${r.confidence_level || "N/A"}<br>
+        <small>By: ${r.username || "Unknown"} | 
+        ${new Date(r.created_at).toLocaleString()}</small>
+      `;
+
+      container.appendChild(div);
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("Failed to load reports");
+  }
+}
+
+
+// create report
+async function createReport() {
+  const evidenceId = document.getElementById("analysisEvidenceId").value;
+  const report_title = document.getElementById("reportTitle").value;
+  const findings = document.getElementById("findings").value;
+  const conclusion = document.getElementById("conclusion").value;
+  const confidence_level = document.getElementById("confidenceLevel").value;
+
+  if (!evidenceId || !report_title || !findings) {
+    alert("Evidence ID, title and findings required");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/analysis/${evidenceId}/report`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({
+        report_title,
+        findings,
+        conclusion,
+        confidence_level
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      alert(data.error || "Failed to create report");
+      return;
+    }
+
+    alert("Report created successfully");
+
+    // Clear form
+    document.getElementById("reportTitle").value = "";
+    document.getElementById("findings").value = "";
+    document.getElementById("conclusion").value = "";
+    document.getElementById("confidenceLevel").value = "";
+
+    loadReports();
+
+  } catch (err) {
+    console.error(err);
+    alert("Error creating report");
+  }
+}
+
+window.registerEvidence = registerEvidence;
+window.verifyEvidence = verifyEvidence;
+window.viewFile = viewFile;
+window.performSemanticSearch = performSemanticSearch;
+window.createCase = createCase;
+window.createReport = createReport;
+window.loadReports = loadReports;

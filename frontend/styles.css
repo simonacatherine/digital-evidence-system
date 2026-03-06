@@ -44,7 +44,6 @@ input, select {
   font-size: 14px;
 }
 
-/* card */
 .card {
   background-color: var(--card-bg);
   padding: 25px;
@@ -55,7 +54,6 @@ input, select {
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
-/* topbar */
 .topbar {
   background-color: var(--primary-red);
   color: white;
@@ -66,7 +64,6 @@ input, select {
   font-weight: 500;
 }
 
-/* table */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -93,7 +90,6 @@ tr:hover {
   background-color: #fafafa;
 }
 
-/* status colors */
 .status-VERIFIED {
   color: green;
   font-weight: bold;
