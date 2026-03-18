@@ -35,4 +35,11 @@ router.put(
   analysisController.updateReport
 );
 
+// Run video action recognition  (?top_n=5)
+router.post(
+  "/:evidenceId/video",
+  authorize(["FORENSIC_ANALYST", "ADMIN"]),
+  analysisController.analyzeVideo
+);
+
 module.exports = router;

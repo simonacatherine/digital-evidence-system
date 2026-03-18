@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const axios = require("axios");
+const FormData = require("form-data");
 const pool = require("../config/db");
 
 const BASE_DIR = path.join(__dirname, "..", "..");
@@ -15,6 +16,7 @@ exports.uploadEvidence = async (req, res) => {
 
     const evidenceId = crypto.randomUUID();
     const caseId = req.body.caseId;
+
     if (!caseId) {
       return res.status(400).json({ error: "Case ID required" });
     }
@@ -28,9 +30,10 @@ exports.uploadEvidence = async (req, res) => {
     if (caseCheck.rows.length === 0) {
       return res.status(400).json({ error: "Invalid case ID" });
     }
-    const originalName = req.file.originalname || "";
 
+    const originalName = req.file.originalname || "";
     const ext = path.extname(originalName).toLowerCase();
+
     const storedPath = path.join(
       EVIDENCE_DIR,
       `${evidenceId}_${originalName}`
@@ -42,7 +45,9 @@ exports.uploadEvidence = async (req, res) => {
     const isVideoFile =
       ext === ".mp4" || ext === ".avi" || ext === ".mov";
 
-    // text
+    // =========================
+    // TEXT FILE
+    // =========================
     if (isTextFile) {
       const textContent = fs.readFileSync(storedPath, "utf-8");
 
@@ -78,8 +83,11 @@ exports.uploadEvidence = async (req, res) => {
       }
     }
 
-    // video
+    // =========================
+    // VIDEO FILE (UPDATED)
+    // =========================
     else if (isVideoFile) {
+      // Existing analysis
       const videoResponse = await axios.post(
         "http://localhost:8000/analyze-video",
         { video_path: storedPath }
@@ -90,10 +98,22 @@ exports.uploadEvidence = async (req, res) => {
 
       const videoEmbedding = `[${clipEmbeddingRaw.join(",")}]`;
 
+      // NEW: ACTION DETECTION
+      const formData = new FormData();
+      formData.append("file", fs.createReadStream(storedPath));
+
+      const actionRes = await axios.post(
+        "http://localhost:8000/action-detect",
+        formData,
+        { headers: formData.getHeaders() }
+      );
+
+      const detectedAction = actionRes.data.action || null;
+
       await pool.query(
         `INSERT INTO evidence
-        (evidence_id, case_id, uploader_id, storage_path, status, video_metadata, embedding, file_type)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        (evidence_id, case_id, uploader_id, storage_path, status, video_metadata, embedding, detected_action, file_type)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [
           evidenceId,
           caseId,
@@ -102,12 +122,15 @@ exports.uploadEvidence = async (req, res) => {
           "NOT_REGISTERED",
           JSON.stringify(detections),
           videoEmbedding,
+          detectedAction,
           "VIDEO"
         ]
       );
     }
 
-    // image
+    // =========================
+    // IMAGE FILE
+    // =========================
     else {
       const aiResponse = await axios.post(
         "http://localhost:8000/embed-image",
@@ -141,6 +164,9 @@ exports.uploadEvidence = async (req, res) => {
       );
     }
 
+    // =========================
+    // AUDIT LOG
+    // =========================
     await pool.query(
       `INSERT INTO audit_logs (user_id, action, evidence_id)
        VALUES ($1,$2,$3)`,
@@ -155,6 +181,10 @@ exports.uploadEvidence = async (req, res) => {
   }
 };
 
+
+// =========================
+// GET LIST
+// =========================
 exports.getEvidenceList = async (req, res) => {
   try {
     const { caseId } = req.query;
@@ -167,10 +197,9 @@ exports.getEvidenceList = async (req, res) => {
         [caseId]
       );
     } else {
-      result = await pool.query(
-        "SELECT * FROM evidence"
-      );
+      result = await pool.query("SELECT * FROM evidence");
     }
+
     let records = result.rows;
 
     if (
@@ -189,6 +218,10 @@ exports.getEvidenceList = async (req, res) => {
   }
 };
 
+
+// =========================
+// VIEW FILE
+// =========================
 exports.viewEvidence = async (req, res) => {
   try {
     const { id } = req.params;
@@ -225,7 +258,6 @@ exports.viewEvidence = async (req, res) => {
     const filePath = path.resolve(record.storage_path);
     const ext = path.extname(filePath).toLowerCase();
 
-    // video stream
     if (ext === ".mp4" || ext === ".mov" || ext === ".avi") {
 
       const stat = fs.statSync(filePath);
@@ -267,7 +299,6 @@ exports.viewEvidence = async (req, res) => {
       return;
     }
 
-    // non video
     let contentType = "application/octet-stream";
     if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
     if (ext === ".png") contentType = "image/png";

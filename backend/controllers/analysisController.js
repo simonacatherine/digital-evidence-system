@@ -1,5 +1,14 @@
 const pool = require("../config/db");
+const fs = require("fs");
+const path = require("path");
+const FormData = require("form-data");
+const axios = require("axios");
 
+const AI_SERVER = process.env.AI_SERVER_URL || "http://localhost:8000";
+
+// =============================================================================
+// CREATE REPORT
+// =============================================================================
 exports.createReport = async (req, res) => {
   try {
     const { evidenceId } = req.params;
@@ -28,11 +37,10 @@ exports.createReport = async (req, res) => {
       ]
     );
 
-    // Audit log
     await pool.query(
-      `INSERT INTO audit_logs (user_id, action)
-       VALUES ($1, $2)`,
-      [analystId, "CREATE_ANALYSIS_REPORT"]
+      `INSERT INTO audit_logs (user_id, action, evidence_id)
+       VALUES ($1, $2, $3)`,
+      [analystId, "CREATE_ANALYSIS_REPORT", evidenceId]
     );
 
     return res.status(201).json({
@@ -46,9 +54,9 @@ exports.createReport = async (req, res) => {
   }
 };
 
-
-// get reports for evidence
-
+// =============================================================================
+// GET REPORTS BY EVIDENCE
+// =============================================================================
 exports.getReportsByEvidence = async (req, res) => {
   try {
     const { evidenceId } = req.params;
@@ -73,9 +81,9 @@ exports.getReportsByEvidence = async (req, res) => {
   }
 };
 
-
-// update report
-
+// =============================================================================
+// UPDATE REPORT
+// =============================================================================
 exports.updateReport = async (req, res) => {
   try {
     const { reportId } = req.params;
@@ -83,10 +91,8 @@ exports.updateReport = async (req, res) => {
 
     const analystId = req.user.id;
 
-    // Ensure report belongs to this analyst
     const existing = await pool.query(
-      `SELECT * FROM analysis_reports
-       WHERE report_id = $1`,
+      `SELECT * FROM analysis_reports WHERE report_id = $1`,
       [reportId]
     );
 
@@ -96,7 +102,10 @@ exports.updateReport = async (req, res) => {
 
     const report = existing.rows[0];
 
-    if (report.analyst_id !== analystId) {
+    const isOwner = report.analyst_id === analystId;
+    const isAdmin = req.user.role === "ADMIN";
+
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({
         error: "You can only edit your own reports"
       });
@@ -104,27 +113,26 @@ exports.updateReport = async (req, res) => {
 
     const updated = await pool.query(
       `UPDATE analysis_reports
-       SET report_title = $1,
-           findings = $2,
-           conclusion = $3,
-           confidence_level = $4,
-           updated_at = CURRENT_TIMESTAMP
+       SET report_title      = $1,
+           findings          = $2,
+           conclusion        = $3,
+           confidence_level  = $4,
+           updated_at        = CURRENT_TIMESTAMP
        WHERE report_id = $5
        RETURNING *`,
       [
-        report_title || report.report_title,
-        findings || report.findings,
-        conclusion || report.conclusion,
+        report_title     || report.report_title,
+        findings         || report.findings,
+        conclusion       || report.conclusion,
         confidence_level || report.confidence_level,
         reportId
       ]
     );
 
-    // Audit log
     await pool.query(
-      `INSERT INTO audit_logs (user_id, action)
-       VALUES ($1, $2)`,
-      [analystId, "UPDATE_ANALYSIS_REPORT"]
+      `INSERT INTO audit_logs (user_id, action, evidence_id)
+       VALUES ($1, $2, $3)`,
+      [analystId, "UPDATE_ANALYSIS_REPORT", report.evidence_id]
     );
 
     return res.json({
@@ -134,6 +142,71 @@ exports.updateReport = async (req, res) => {
 
   } catch (err) {
     console.error("UPDATE REPORT ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// =============================================================================
+// ANALYZE VIDEO
+// =============================================================================
+exports.analyzeVideo = async (req, res) => {
+  try {
+    const { evidenceId } = req.params;
+    const topN = parseInt(req.query.top_n, 10) || 5;
+
+    // 1. Fetch evidence record — correct PK column: evidence_id
+    const evidenceResult = await pool.query(
+      `SELECT * FROM evidence WHERE evidence_id = $1`,
+      [evidenceId]
+    );
+
+    if (evidenceResult.rows.length === 0) {
+      return res.status(404).json({ error: "Evidence not found" });
+    }
+
+    const evidence = evidenceResult.rows[0];
+
+    // 2. Correct column name: storage_path (not file_path)
+    const filePath = path.resolve(evidence.storage_path);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Evidence file not found on disk" });
+    }
+
+    // 3. Send to AI server using axios (consistent with rest of project)
+    const formData = new FormData();
+    formData.append("file", fs.createReadStream(filePath));
+    formData.append("top_n", String(topN));
+
+    const actionRes = await axios.post(
+      `${AI_SERVER}/action-detect`,
+      formData,
+      { headers: formData.getHeaders() }
+    );
+
+    const actionData = actionRes.data;
+
+    // 4. Audit log — evidence_id column exists in your schema
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, evidence_id)
+       VALUES ($1, $2, $3)`,
+      [req.user.id, "VIDEO_ACTION_ANALYSIS", evidenceId]
+    );
+
+    // 5. Return result — no DB update needed, action stored on upload
+    return res.json({
+      evidence_id: evidenceId,
+      model_used:  actionData.model_used,
+      top_actions: actionData.top_actions,
+      primary: {
+        action:     actionData.action,
+        raw_label:  actionData.raw_label,
+        confidence: actionData.confidence
+      }
+    });
+
+  } catch (err) {
+    console.error("ANALYZE VIDEO ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };

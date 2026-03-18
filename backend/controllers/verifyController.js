@@ -53,7 +53,8 @@ exports.verifyAll = async (req, res) => {
           caseId: record.case_id,
           storedHash,
           currentHash,
-          status
+          status,
+          detected_action: record.detected_action
         });
       }
 

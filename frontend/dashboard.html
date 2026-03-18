@@ -24,18 +24,9 @@
       text-align: left;
     }
 
-    .similarity-high {
-      color: green;
-      font-weight: bold;
-    }
-
-    .similarity-medium {
-      color: orange;
-    }
-
-    .similarity-low {
-      color: red;
-    }
+    .similarity-high { color: green; font-weight: bold; }
+    .similarity-medium { color: orange; }
+    .similarity-low { color: red; }
 
     .card {
       border: 1px solid #ddd;
@@ -52,15 +43,49 @@
       margin-bottom: 20px;
     }
 
-    textarea {
+    textarea { width: 100%; }
+
+    /* action results panel */
+    #actionResultPanel {
+      background: #f0f4ff;
+      border: 1px solid #b0c4ff;
+      border-radius: 6px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+
+    #actionResultPanel table {
       width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    #actionResultPanel th,
+    #actionResultPanel td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid #d0d8f0;
+    }
+
+    .conf-bar-wrap {
+      background: #dde4f7;
+      border-radius: 4px;
+      height: 10px;
+      width: 120px;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    .conf-bar {
+      background: #4a6cf7;
+      height: 10px;
+      border-radius: 4px;
     }
   </style>
 </head>
 
 <body>
 
-<!-- top bar -->
 <div class="topbar">
   <span id="roleDisplay"></span>
   <button onclick="logout()">Logout</button>
@@ -68,12 +93,9 @@
 
 <div class="card" id="createCaseSection">
   <h3>Create New Case</h3>
-
   <input type="text" id="newCaseId" placeholder="Case ID">
   <input type="text" id="newCaseName" placeholder="Case Name">
-
   <button onclick="createCase()">Create Case</button>
-
   <p id="caseCreateStatus"></p>
 </div>
 
@@ -84,111 +106,71 @@
   </select>
 </div>
 
-<!-- upload section -->
 <div class="card" id="uploadSection">
   <h3>Upload Evidence</h3>
   <input type="file" id="file">
-  <!--<input type="text" id="caseId" placeholder="Case ID" readonly>-->
   <button id="uploadBtn">Upload</button>
   <p id="uploadStatus"></p>
 </div>
 
-
-<!-- semantic search -->
 <div class="card">
   <h3>Semantic Search (Registered Evidence Only)</h3>
-
   <div class="search-row">
-    <input 
-      type="text" 
-      id="searchQuery" 
-      placeholder="Enter search text (e.g., blood stained knife)"
-    >
-
-    <!--<input 
-      type="text" 
-      id="searchCaseId" 
-      placeholder="Search inside selected case"
-      readonly
-    >-->
-
+    <input type="text" id="searchQuery" placeholder="Enter search text (e.g., blood stained knife)">
     <button onclick="performSemanticSearch()">Search</button>
   </div>
-
   <div id="searchResults"></div>
 </div>
 
-
-<!-- evidence table -->
 <div class="card">
   <h3>Evidence Dashboard</h3>
-
   <table style="width:100%; border-collapse: collapse;">
     <thead>
       <tr>
         <th>ID</th>
         <th>Case</th>
         <th>Status</th>
-        <th>Action</th>
+        <th>Detected Action</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody id="table"></tbody>
   </table>
 </div>
 
+<!-- NEW: Video Action Analysis result panel (hidden until triggered) -->
+<div class="card" id="actionAnalysisCard" style="display:none;">
+  <h3>Video Action Analysis</h3>
+  <p id="actionAnalysisLabel" style="font-size:13px; color:#555;"></p>
+  <div id="actionResultPanel"></div>
+</div>
 
-<!-- analysis section -->
 <div class="card" id="analysisSection" style="display:none;">
   <h3>Forensic Analysis & Reports</h3>
 
-  <!-- View Reports -->
   <div style="margin-bottom:15px;">
-    <input 
-      type="text" 
-      id="analysisEvidenceId" 
-      placeholder="Enter Evidence ID to View Reports"
-    >
+    <input type="text" id="analysisEvidenceId" placeholder="Enter Evidence ID to View Reports">
     <button onclick="loadReports()">Load Reports</button>
   </div>
 
   <div id="reportsContainer" style="margin-bottom:20px;"></div>
 
-  <!-- Create Report -->
   <div id="createReportForm">
     <hr>
     <h4>Create Analysis Report</h4>
-
-    <input 
-      type="text" 
-      id="reportTitle" 
-      placeholder="Report Title"
-    ><br><br>
-
-    <textarea 
-      id="findings" 
-      placeholder="Detailed Findings"
-      rows="4"
-    ></textarea><br><br>
-
-    <textarea 
-      id="conclusion" 
-      placeholder="Conclusion"
-      rows="3"
-    ></textarea><br><br>
-
+    <input type="text" id="reportTitle" placeholder="Report Title"><br><br>
+    <textarea id="findings" placeholder="Detailed Findings" rows="4"></textarea><br><br>
+    <textarea id="conclusion" placeholder="Conclusion" rows="3"></textarea><br><br>
     <select id="confidenceLevel">
       <option value="">Select Confidence Level</option>
       <option value="LOW">LOW</option>
       <option value="MEDIUM">MEDIUM</option>
       <option value="HIGH">HIGH</option>
     </select><br><br>
-
     <button onclick="createReport()">Submit Report</button>
   </div>
 </div>
 
-
 <script src="dashboard.js"></script>
-
 </body>
 </html>

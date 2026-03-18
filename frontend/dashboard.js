@@ -4,8 +4,7 @@ const role = localStorage.getItem("role");
 
 if (!token) window.location.href = "login.html";
 
-document.getElementById("roleDisplay").innerText =
-  "Logged in as: " + role;
+document.getElementById("roleDisplay").innerText = "Logged in as: " + role;
 
 const legalRoles = [
   "FORENSIC_ANALYST",
@@ -15,11 +14,13 @@ const legalRoles = [
   "JUDGE"
 ];
 
+const VIDEO_EXTS = [".mp4", ".avi", ".mov"];
+
 let selectedCase = "";
+
 function updateSelectedCase() {
   const selector = document.getElementById("caseSelector");
   selectedCase = selector.value;
-
   loadEvidence();
 }
 
@@ -33,9 +34,6 @@ if (role !== "FORENSIC_ANALYST") {
 
 if (role !== "INVESTIGATING_OFFICER") {
   document.getElementById("uploadSection").style.display = "none";
-}
-
-if (role !== "INVESTIGATING_OFFICER") {
   document.getElementById("createCaseSection").style.display = "none";
 }
 
@@ -65,22 +63,25 @@ async function loadEvidence() {
       const row = document.createElement("tr");
       let actions = "";
 
-      if (
-        role === "INVESTIGATING_OFFICER" &&
-        r.status === "NOT REGISTERED"
-      ) {
-        actions += `<button onclick="registerEvidence('${r.evidenceId}')">Register</button>`;
+      if (role === "INVESTIGATING_OFFICER" && r.status === "NOT REGISTERED") {
+        actions += `<button onclick="registerEvidence('${r.evidenceId}')">Register</button> `;
       }
 
       if (r.status !== "NOT REGISTERED") {
-        actions += `<button onclick="viewFile('${r.evidenceId}')">View</button>`;
-        actions += `<button onclick="verifyEvidence('${r.evidenceId}')">Verify</button>`;
+        actions += `<button onclick="viewFile('${r.evidenceId}')">View</button> `;
+        actions += `<button onclick="verifyEvidence('${r.evidenceId}')">Verify</button> `;
+      }
+
+      // file_type now present from both verify endpoints
+      if (r.file_type === "VIDEO" && role === "FORENSIC_ANALYST") {
+        actions += `<button onclick="analyzeVideo('${r.evidenceId}')">Analyse Video</button>`;
       }
 
       row.innerHTML = `
         <td>${r.evidenceId}</td>
         <td>${r.caseId}</td>
         <td>${r.status}</td>
+        <td>${r.detected_action || "N/A"}</td>
         <td>${actions}</td>
       `;
 
@@ -100,7 +101,6 @@ async function loadCases() {
 
     const cases = await res.json();
     const selector = document.getElementById("caseSelector");
-
     selector.innerHTML = `<option value="">-- Select Case --</option>`;
 
     cases.forEach(c => {
@@ -142,10 +142,8 @@ async function createCase() {
     }
 
     alert("Case created successfully");
-
     document.getElementById("newCaseId").value = "";
     document.getElementById("newCaseName").value = "";
-
     loadCases();
 
   } catch (err) {
@@ -154,7 +152,6 @@ async function createCase() {
   }
 }
 
-// upload
 async function uploadEvidence() {
   const file = document.getElementById("file").files[0];
   if (!file || !selectedCase) {
@@ -172,13 +169,10 @@ async function uploadEvidence() {
     body: formData
   });
 
-  document.getElementById("uploadStatus").innerText =
-    "Upload successful";
-
+  document.getElementById("uploadStatus").innerText = "Upload successful";
   loadEvidence();
 }
 
-// register
 async function registerEvidence(id) {
   await fetch(`${API}/register`, {
     method: "POST",
@@ -192,7 +186,6 @@ async function registerEvidence(id) {
   loadEvidence();
 }
 
-// verify
 async function verifyEvidence(id) {
   const res = await fetch(`${API}/verify`, {
     headers: { Authorization: "Bearer " + token }
@@ -210,13 +203,88 @@ async function verifyEvidence(id) {
   loadEvidence();
 }
 
-// view file
 function viewFile(id) {
   const url = `${API}/evidence/${id}/view?token=${token}`;
   window.open(url, "_blank");
 }
 
-// semantic search
+// =========================
+// NEW: ANALYSE VIDEO
+// =========================
+async function analyzeVideo(evidenceId) {
+  const card = document.getElementById("actionAnalysisCard");
+  const label = document.getElementById("actionAnalysisLabel");
+  const panel = document.getElementById("actionResultPanel");
+
+  card.style.display = "block";
+  label.textContent = `Running action analysis on evidence: ${evidenceId}...`;
+  panel.innerHTML = "Please wait...";
+
+  // Scroll to result
+  card.scrollIntoView({ behavior: "smooth" });
+
+  try {
+    const res = await fetch(`${API}/analysis/${evidenceId}/video?top_n=5`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token }
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      alert("Session expired or access denied");
+      logout();
+      return;
+    }
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      panel.innerHTML = `<p style="color:red;">Error: ${data.error || "Analysis failed"}</p>`;
+      return;
+    }
+
+    label.textContent =
+      `Evidence: ${data.evidence_id} — Model: ${data.model_used}` +
+      ` — Primary action: ${data.primary.action} (${(data.primary.confidence * 100).toFixed(1)}%)`;
+
+    // Build Top-N table
+    const rows = (data.top_actions || []).map((a, i) => {
+      const pct = (a.confidence * 100).toFixed(1);
+      const barWidth = Math.round(a.confidence * 120);
+      return `
+        <tr>
+          <td>${a.rank}</td>
+          <td>${a.forensic_tag}</td>
+          <td style="color:#555; font-size:12px;">${a.raw_label}</td>
+          <td>
+            <span class="conf-bar-wrap">
+              <span class="conf-bar" style="width:${barWidth}px;"></span>
+            </span>
+            &nbsp;${pct}%
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    panel.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Forensic tag</th>
+            <th>Raw label</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+
+  } catch (err) {
+    console.error("analyzeVideo error:", err);
+    panel.innerHTML = `<p style="color:red;">Request failed. Is the server running?</p>`;
+  }
+}
+
 async function performSemanticSearch() {
   const query = document.getElementById("searchQuery").value.trim();
   const caseId = selectedCase;
@@ -236,10 +304,7 @@ async function performSemanticSearch() {
         "Content-Type": "application/json",
         Authorization: "Bearer " + token
       },
-      body: JSON.stringify({
-        query,
-        caseId: caseId || null
-      })
+      body: JSON.stringify({ query, caseId: caseId || null })
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -257,7 +322,6 @@ async function performSemanticSearch() {
   }
 }
 
-// display search results
 function displaySearchResults(results) {
   const container = document.getElementById("searchResults");
   container.innerHTML = "";
@@ -273,11 +337,7 @@ function displaySearchResults(results) {
   table.innerHTML = `
     <thead>
       <tr>
-        <th>ID</th>
-        <th>Case</th>
-        <th>Type</th>
-        <th>Score</th>
-        <th>Action</th>
+        <th>ID</th><th>Case</th><th>Type</th><th>Score</th><th>Action</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -287,38 +347,28 @@ function displaySearchResults(results) {
 
   results.forEach(r => {
     const score = r.final_score ?? 0;
-
     let scoreClass = "similarity-low";
     if (score > 0.5) scoreClass = "similarity-high";
     else if (score > 0.3) scoreClass = "similarity-medium";
 
     const row = document.createElement("tr");
-
     row.innerHTML = `
       <td>${r.evidence_id}</td>
       <td>${r.case_id}</td>
       <td>${r.type}</td>
-      <td class="${scoreClass}">
-        ${score.toFixed(4)}
-      </td>
-      <td>
-        <button onclick="viewFile('${r.evidence_id}')">View</button>
-      </td>
+      <td class="${scoreClass}">${score.toFixed(4)}</td>
+      <td><button onclick="viewFile('${r.evidence_id}')">View</button></td>
     `;
-
     tbody.appendChild(row);
   });
 
   container.appendChild(table);
 }
 
-document
-  .getElementById("uploadBtn")
-  ?.addEventListener("click", uploadEvidence);
+document.getElementById("uploadBtn")?.addEventListener("click", uploadEvidence);
 
 loadCases();
 
-// load reports
 async function loadReports() {
   const evidenceId = document.getElementById("analysisEvidenceId").value;
 
@@ -352,8 +402,7 @@ async function loadReports() {
         <strong>Findings:</strong> ${r.findings}<br>
         <strong>Conclusion:</strong> ${r.conclusion || "N/A"}<br>
         <strong>Confidence:</strong> ${r.confidence_level || "N/A"}<br>
-        <small>By: ${r.username || "Unknown"} | 
-        ${new Date(r.created_at).toLocaleString()}</small>
+        <small>By: ${r.username || "Unknown"} | ${new Date(r.created_at).toLocaleString()}</small>
       `;
 
       container.appendChild(div);
@@ -365,8 +414,6 @@ async function loadReports() {
   }
 }
 
-
-// create report
 async function createReport() {
   const evidenceId = document.getElementById("analysisEvidenceId").value;
   const report_title = document.getElementById("reportTitle").value;
@@ -386,12 +433,7 @@ async function createReport() {
         "Content-Type": "application/json",
         Authorization: "Bearer " + token
       },
-      body: JSON.stringify({
-        report_title,
-        findings,
-        conclusion,
-        confidence_level
-      })
+      body: JSON.stringify({ report_title, findings, conclusion, confidence_level })
     });
 
     const data = await res.json();
@@ -402,13 +444,10 @@ async function createReport() {
     }
 
     alert("Report created successfully");
-
-    // Clear form
     document.getElementById("reportTitle").value = "";
     document.getElementById("findings").value = "";
     document.getElementById("conclusion").value = "";
     document.getElementById("confidenceLevel").value = "";
-
     loadReports();
 
   } catch (err) {
@@ -424,3 +463,4 @@ window.performSemanticSearch = performSemanticSearch;
 window.createCase = createCase;
 window.createReport = createReport;
 window.loadReports = loadReports;
+window.analyzeVideo = analyzeVideo;
