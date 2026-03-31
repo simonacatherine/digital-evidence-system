@@ -21,7 +21,6 @@ exports.uploadEvidence = async (req, res) => {
       return res.status(400).json({ error: "Case ID required" });
     }
 
-    // Ensure case exists
     const caseCheck = await pool.query(
       "SELECT case_id FROM cases WHERE case_id = $1",
       [caseId]
@@ -41,9 +40,13 @@ exports.uploadEvidence = async (req, res) => {
 
     fs.renameSync(req.file.path, storedPath);
 
-    const isTextFile = ext.endsWith(".txt");
-    const isVideoFile =
-      ext === ".mp4" || ext === ".avi" || ext === ".mov";
+    // Optional location fields from upload form
+    const latitude     = req.body.latitude     ? parseFloat(req.body.latitude)  : null;
+    const longitude    = req.body.longitude    ? parseFloat(req.body.longitude) : null;
+    const locationName = req.body.location_name || null;
+
+    const isTextFile  = ext.endsWith(".txt");
+    const isVideoFile = ext === ".mp4" || ext === ".avi" || ext === ".mov";
 
     // =========================
     // TEXT FILE
@@ -67,40 +70,35 @@ exports.uploadEvidence = async (req, res) => {
 
         await pool.query(
           `INSERT INTO evidence
-          (evidence_id, case_id, uploader_id, storage_path, status, text_embedding, chunk_text, file_type)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+           (evidence_id, case_id, uploader_id, storage_path, status,
+            text_embedding, chunk_text, file_type,
+            latitude, longitude, location_name)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [
-            evidenceId,
-            caseId,
-            req.user.id,
-            storedPath,
-            "NOT_REGISTERED",
-            textEmbedding,
-            sentence,
-            "TEXT"
+            evidenceId, caseId, req.user.id, storedPath, "NOT_REGISTERED",
+            textEmbedding, sentence, "TEXT",
+            latitude, longitude, locationName
           ]
         );
       }
     }
 
     // =========================
-    // VIDEO FILE (UPDATED)
+    // VIDEO FILE
     // =========================
     else if (isVideoFile) {
-      // Existing analysis
       const videoResponse = await axios.post(
         "http://localhost:8000/analyze-video",
         { video_path: storedPath }
       );
 
-      const detections = videoResponse.data.detections || [];
+      const detections      = videoResponse.data.detections || [];
       const clipEmbeddingRaw = videoResponse.data.clip_embedding;
+      const videoEmbedding  = `[${clipEmbeddingRaw.join(",")}]`;
 
-      const videoEmbedding = `[${clipEmbeddingRaw.join(",")}]`;
-
-      // NEW: ACTION DETECTION
       const formData = new FormData();
       formData.append("file", fs.createReadStream(storedPath));
+      formData.append("top_n", "5");
 
       const actionRes = await axios.post(
         "http://localhost:8000/action-detect",
@@ -112,18 +110,14 @@ exports.uploadEvidence = async (req, res) => {
 
       await pool.query(
         `INSERT INTO evidence
-        (evidence_id, case_id, uploader_id, storage_path, status, video_metadata, embedding, detected_action, file_type)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         (evidence_id, case_id, uploader_id, storage_path, status,
+          video_metadata, embedding, detected_action, file_type,
+          latitude, longitude, location_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
-          evidenceId,
-          caseId,
-          req.user.id,
-          storedPath,
-          "NOT_REGISTERED",
-          JSON.stringify(detections),
-          videoEmbedding,
-          detectedAction,
-          "VIDEO"
+          evidenceId, caseId, req.user.id, storedPath, "NOT_REGISTERED",
+          JSON.stringify(detections), videoEmbedding, detectedAction, "VIDEO",
+          latitude, longitude, locationName
         ]
       );
     }
@@ -137,7 +131,7 @@ exports.uploadEvidence = async (req, res) => {
         { image_path: storedPath }
       );
 
-      const rawEmbedding = aiResponse.data.embedding;
+      const rawEmbedding  = aiResponse.data.embedding;
       const imageEmbedding = `[${rawEmbedding.join(",")}]`;
 
       const yoloResponse = await axios.post(
@@ -149,17 +143,14 @@ exports.uploadEvidence = async (req, res) => {
 
       await pool.query(
         `INSERT INTO evidence
-        (evidence_id, case_id, uploader_id, storage_path, status, embedding, detected_objects, file_type)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+         (evidence_id, case_id, uploader_id, storage_path, status,
+          embedding, detected_objects, file_type,
+          latitude, longitude, location_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
-          evidenceId,
-          caseId,
-          req.user.id,
-          storedPath,
-          "NOT_REGISTERED",
-          imageEmbedding,
-          detectedObjects,
-          "IMAGE"
+          evidenceId, caseId, req.user.id, storedPath, "NOT_REGISTERED",
+          imageEmbedding, detectedObjects, "IMAGE",
+          latitude, longitude, locationName
         ]
       );
     }
@@ -177,6 +168,52 @@ exports.uploadEvidence = async (req, res) => {
 
   } catch (err) {
     console.error("UPLOAD ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// =========================
+// UPDATE LOCATION
+// PATCH /evidence/:id/location
+// =========================
+exports.updateLocation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { latitude, longitude, location_name } = req.body;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ error: "latitude and longitude required" });
+    }
+
+    const existing = await pool.query(
+      "SELECT * FROM evidence WHERE evidence_id = $1",
+      [id]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: "Evidence not found" });
+    }
+
+    await pool.query(
+      `UPDATE evidence
+       SET latitude      = $1,
+           longitude     = $2,
+           location_name = $3
+       WHERE evidence_id = $4`,
+      [parseFloat(latitude), parseFloat(longitude), location_name || null, id]
+    );
+
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, evidence_id)
+       VALUES ($1, $2, $3)`,
+      [req.user.id, "UPDATE_LOCATION", id]
+    );
+
+    return res.json({ message: "Location updated", evidence_id: id });
+
+  } catch (err) {
+    console.error("UPDATE LOCATION ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -206,9 +243,7 @@ exports.getEvidenceList = async (req, res) => {
       req.user.role !== "ADMIN" &&
       req.user.role !== "INVESTIGATING_OFFICER"
     ) {
-      records = records.filter(
-        r => r.status === "REGISTERED"
-      );
+      records = records.filter(r => r.status === "REGISTERED");
     }
 
     res.json(records);
@@ -259,10 +294,9 @@ exports.viewEvidence = async (req, res) => {
     const ext = path.extname(filePath).toLowerCase();
 
     if (ext === ".mp4" || ext === ".mov" || ext === ".avi") {
-
-      const stat = fs.statSync(filePath);
+      const stat     = fs.statSync(filePath);
       const fileSize = stat.size;
-      const range = req.headers.range;
+      const range    = req.headers.range;
 
       const contentType =
         ext === ".mp4" ? "video/mp4" :
@@ -270,27 +304,24 @@ exports.viewEvidence = async (req, res) => {
         "video/x-msvideo";
 
       if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10);
-        const end = parts[1]
-          ? parseInt(parts[1], 10)
-          : fileSize - 1;
-
+        const parts     = range.replace(/bytes=/, "").split("-");
+        const start     = parseInt(parts[0], 10);
+        const end       = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
         const chunkSize = (end - start) + 1;
         const fileStream = fs.createReadStream(filePath, { start, end });
 
         res.writeHead(206, {
-          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-          "Accept-Ranges": "bytes",
+          "Content-Range":  `bytes ${start}-${end}/${fileSize}`,
+          "Accept-Ranges":  "bytes",
           "Content-Length": chunkSize,
-          "Content-Type": contentType
+          "Content-Type":   contentType
         });
 
         fileStream.pipe(res);
       } else {
         res.writeHead(200, {
           "Content-Length": fileSize,
-          "Content-Type": contentType
+          "Content-Type":   contentType
         });
 
         fs.createReadStream(filePath).pipe(res);

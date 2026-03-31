@@ -45,7 +45,6 @@
 
     textarea { width: 100%; }
 
-    /* action results panel */
     #actionResultPanel {
       background: #f0f4ff;
       border: 1px solid #b0c4ff;
@@ -81,14 +80,38 @@
       height: 10px;
       border-radius: 4px;
     }
+
+    /* location input inside upload card */
+    .location-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .location-row input {
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .location-row small {
+      font-size: 11px;
+      color: #888;
+      width: 100%;
+    }
   </style>
 </head>
 
 <body>
 
+<!-- topbar — map button only shown to all roles, but add-location is officer only -->
 <div class="topbar">
   <span id="roleDisplay"></span>
-  <button onclick="logout()">Logout</button>
+  <div style="display:flex; gap:8px;">
+    <button onclick="window.location.href='map.html'">View Case Map</button>
+    <button onclick="logout()">Logout</button>
+  </div>
 </div>
 
 <div class="card" id="createCaseSection">
@@ -106,10 +129,18 @@
   </select>
 </div>
 
+<!-- Upload section — location fields only shown to INVESTIGATING_OFFICER -->
 <div class="card" id="uploadSection">
   <h3>Upload Evidence</h3>
   <input type="file" id="file">
-  <button id="uploadBtn">Upload</button>
+
+  <!-- Location fields — hidden by default, shown for officer in dashboard.js -->
+  <div class="location-row" id="locationFields" style="display:none;">
+    <input type="text" id="uploadAddress" placeholder="Crime scene address (optional)">
+    <small>Type an address to geocode it automatically, or leave blank to add location later from the map.</small>
+  </div>
+
+  <button id="uploadBtn" style="margin-top:8px;">Upload</button>
   <p id="uploadStatus"></p>
 </div>
 
@@ -138,7 +169,6 @@
   </table>
 </div>
 
-<!-- NEW: Video Action Analysis result panel (hidden until triggered) -->
 <div class="card" id="actionAnalysisCard" style="display:none;">
   <h3>Video Action Analysis</h3>
   <p id="actionAnalysisLabel" style="font-size:13px; color:#555;"></p>

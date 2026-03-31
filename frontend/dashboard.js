@@ -14,8 +14,6 @@ const legalRoles = [
   "JUDGE"
 ];
 
-const VIDEO_EXTS = [".mp4", ".avi", ".mov"];
-
 let selectedCase = "";
 
 function updateSelectedCase() {
@@ -35,6 +33,9 @@ if (role !== "FORENSIC_ANALYST") {
 if (role !== "INVESTIGATING_OFFICER") {
   document.getElementById("uploadSection").style.display = "none";
   document.getElementById("createCaseSection").style.display = "none";
+} else {
+  // Show location fields only for investigating officer
+  document.getElementById("locationFields").style.display = "flex";
 }
 
 function logout() {
@@ -72,9 +73,8 @@ async function loadEvidence() {
         actions += `<button onclick="verifyEvidence('${r.evidenceId}')">Verify</button> `;
       }
 
-      // file_type now present from both verify endpoints
       if (r.file_type === "VIDEO" && role === "FORENSIC_ANALYST") {
-        actions += `<button onclick="analyzeVideo('${r.evidenceId}')">Analyse Video</button>`;
+        actions += `<button onclick="analyzeVideo('${r.evidenceId}')">Analyse Video</button> `;
       }
 
       row.innerHTML = `
@@ -91,6 +91,14 @@ async function loadEvidence() {
   } catch (err) {
     console.error("Load error:", err);
   }
+}
+
+// Open map page — pass evidenceId so map can highlight it
+function openMap(evidenceId) {
+  if (evidenceId) {
+    localStorage.setItem("mapFocusEvidence", evidenceId);
+  }
+  window.location.href = "map.html";
 }
 
 async function loadCases() {
@@ -163,13 +171,39 @@ async function uploadEvidence() {
   formData.append("file", file);
   formData.append("caseId", selectedCase);
 
-  await fetch(`${API}/evidence/upload`, {
+  // Geocode address if provided (officer only)
+  const addressInput = document.getElementById("uploadAddress");
+  const address = addressInput ? addressInput.value.trim() : "";
+
+  if (address) {
+    try {
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+        { headers: { "Accept-Language": "en" } }
+      );
+      const geoData = await geoRes.json();
+      if (geoData.length) {
+        formData.append("latitude",      geoData[0].lat);
+        formData.append("longitude",     geoData[0].lon);
+        formData.append("location_name", address);
+      } else {
+        console.warn("Address not found, uploading without location");
+      }
+    } catch (e) {
+      console.warn("Geocoding failed, uploading without location");
+    }
+  }
+
+  const uploadRes = await fetch(`${API}/evidence/upload`, {
     method: "POST",
     headers: { Authorization: "Bearer " + token },
     body: formData
   });
 
-  document.getElementById("uploadStatus").innerText = "Upload successful";
+  document.getElementById("uploadStatus").innerText =
+    uploadRes.ok ? "Upload successful" : "Upload failed";
+
+  if (addressInput) addressInput.value = "";
   loadEvidence();
 }
 
@@ -182,7 +216,6 @@ async function registerEvidence(id) {
     },
     body: JSON.stringify({ evidenceId: id })
   });
-
   loadEvidence();
 }
 
@@ -208,19 +241,14 @@ function viewFile(id) {
   window.open(url, "_blank");
 }
 
-// =========================
-// NEW: ANALYSE VIDEO
-// =========================
 async function analyzeVideo(evidenceId) {
-  const card = document.getElementById("actionAnalysisCard");
+  const card  = document.getElementById("actionAnalysisCard");
   const label = document.getElementById("actionAnalysisLabel");
   const panel = document.getElementById("actionResultPanel");
 
   card.style.display = "block";
-  label.textContent = `Running action analysis on evidence: ${evidenceId}...`;
-  panel.innerHTML = "Please wait...";
-
-  // Scroll to result
+  label.textContent  = `Running action analysis on evidence: ${evidenceId}...`;
+  panel.innerHTML    = "Please wait...";
   card.scrollIntoView({ behavior: "smooth" });
 
   try {
@@ -246,9 +274,8 @@ async function analyzeVideo(evidenceId) {
       `Evidence: ${data.evidence_id} — Model: ${data.model_used}` +
       ` — Primary action: ${data.primary.action} (${(data.primary.confidence * 100).toFixed(1)}%)`;
 
-    // Build Top-N table
-    const rows = (data.top_actions || []).map((a, i) => {
-      const pct = (a.confidence * 100).toFixed(1);
+    const rows = (data.top_actions || []).map(a => {
+      const pct      = (a.confidence * 100).toFixed(1);
       const barWidth = Math.round(a.confidence * 120);
       return `
         <tr>
@@ -268,12 +295,7 @@ async function analyzeVideo(evidenceId) {
     panel.innerHTML = `
       <table>
         <thead>
-          <tr>
-            <th>#</th>
-            <th>Forensic tag</th>
-            <th>Raw label</th>
-            <th>Confidence</th>
-          </tr>
+          <tr><th>#</th><th>Forensic tag</th><th>Raw label</th><th>Confidence</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -286,13 +308,10 @@ async function analyzeVideo(evidenceId) {
 }
 
 async function performSemanticSearch() {
-  const query = document.getElementById("searchQuery").value.trim();
+  const query  = document.getElementById("searchQuery").value.trim();
   const caseId = selectedCase;
 
-  if (!query) {
-    alert("Please enter search text");
-    return;
-  }
+  if (!query) { alert("Please enter search text"); return; }
 
   const container = document.getElementById("searchResults");
   container.innerHTML = "Searching...";
@@ -333,18 +352,14 @@ function displaySearchResults(results) {
 
   const table = document.createElement("table");
   table.classList.add("search-results-table");
-
   table.innerHTML = `
     <thead>
-      <tr>
-        <th>ID</th><th>Case</th><th>Type</th><th>Score</th><th>Action</th>
-      </tr>
+      <tr><th>ID</th><th>Case</th><th>Type</th><th>Score</th><th>Action</th></tr>
     </thead>
     <tbody></tbody>
   `;
 
   const tbody = table.querySelector("tbody");
-
   results.forEach(r => {
     const score = r.final_score ?? 0;
     let scoreClass = "similarity-low";
@@ -371,17 +386,12 @@ loadCases();
 
 async function loadReports() {
   const evidenceId = document.getElementById("analysisEvidenceId").value;
-
-  if (!evidenceId) {
-    alert("Enter Evidence ID");
-    return;
-  }
+  if (!evidenceId) { alert("Enter Evidence ID"); return; }
 
   try {
-    const res = await fetch(`${API}/analysis/${evidenceId}/reports`, {
+    const res  = await fetch(`${API}/analysis/${evidenceId}/reports`, {
       headers: { Authorization: "Bearer " + token }
     });
-
     const data = await res.json();
     const container = document.getElementById("reportsContainer");
     container.innerHTML = "";
@@ -393,10 +403,9 @@ async function loadReports() {
 
     data.reports.forEach(r => {
       const div = document.createElement("div");
-      div.style.border = "1px solid #ccc";
-      div.style.padding = "8px";
-      div.style.marginBottom = "10px";
-
+      div.style.border        = "1px solid #ccc";
+      div.style.padding       = "8px";
+      div.style.marginBottom  = "10px";
       div.innerHTML = `
         <strong>${r.report_title}</strong><br>
         <strong>Findings:</strong> ${r.findings}<br>
@@ -404,7 +413,6 @@ async function loadReports() {
         <strong>Confidence:</strong> ${r.confidence_level || "N/A"}<br>
         <small>By: ${r.username || "Unknown"} | ${new Date(r.created_at).toLocaleString()}</small>
       `;
-
       container.appendChild(div);
     });
 
@@ -415,10 +423,10 @@ async function loadReports() {
 }
 
 async function createReport() {
-  const evidenceId = document.getElementById("analysisEvidenceId").value;
-  const report_title = document.getElementById("reportTitle").value;
-  const findings = document.getElementById("findings").value;
-  const conclusion = document.getElementById("conclusion").value;
+  const evidenceId       = document.getElementById("analysisEvidenceId").value;
+  const report_title     = document.getElementById("reportTitle").value;
+  const findings         = document.getElementById("findings").value;
+  const conclusion       = document.getElementById("conclusion").value;
   const confidence_level = document.getElementById("confidenceLevel").value;
 
   if (!evidenceId || !report_title || !findings) {
@@ -437,16 +445,12 @@ async function createReport() {
     });
 
     const data = await res.json();
-
-    if (!res.ok) {
-      alert(data.error || "Failed to create report");
-      return;
-    }
+    if (!res.ok) { alert(data.error || "Failed to create report"); return; }
 
     alert("Report created successfully");
-    document.getElementById("reportTitle").value = "";
-    document.getElementById("findings").value = "";
-    document.getElementById("conclusion").value = "";
+    document.getElementById("reportTitle").value    = "";
+    document.getElementById("findings").value       = "";
+    document.getElementById("conclusion").value     = "";
     document.getElementById("confidenceLevel").value = "";
     loadReports();
 
@@ -456,11 +460,11 @@ async function createReport() {
   }
 }
 
-window.registerEvidence = registerEvidence;
-window.verifyEvidence = verifyEvidence;
-window.viewFile = viewFile;
+window.registerEvidence    = registerEvidence;
+window.verifyEvidence      = verifyEvidence;
+window.viewFile            = viewFile;
 window.performSemanticSearch = performSemanticSearch;
-window.createCase = createCase;
-window.createReport = createReport;
-window.loadReports = loadReports;
-window.analyzeVideo = analyzeVideo;
+window.createCase          = createCase;
+window.createReport        = createReport;
+window.loadReports         = loadReports;
+window.analyzeVideo        = analyzeVideo;

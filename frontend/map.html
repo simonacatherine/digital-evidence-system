@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Case Evidence Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="map.css"/>
+</head>
+<body>
+
+<div class="topbar">
+  <h2>Evidence Map</h2>
+  <div class="topbar-right">
+    <span id="roleDisplay"></span>
+    <button onclick="window.location.href='dashboard.html'">Back to Dashboard</button>
+    <button onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<div class="controls">
+  <select id="caseSelector" onchange="loadMapEvidence()">
+    <option value="">-- Select Case --</option>
+  </select>
+  <input type="text" id="searchAddress" placeholder="Search address (Nominatim)">
+  <button onclick="geocodeSearch()">Search</button>
+  <button id="pathToggle" onclick="togglePath()">Show Movement Path</button>
+</div>
+
+<div class="main">
+  <div id="map"></div>
+
+  <div class="sidebar">
+    <div id="updatePanel" style="display:none;">
+      <h4>Add / Update Location</h4>
+      <input type="text"   id="upEvidenceId" placeholder="Evidence ID">
+      <input type="text"   id="upAddress"    placeholder="Address (will geocode)">
+      <input type="number" id="upLat" step="any" placeholder="Latitude (optional)">
+      <input type="number" id="upLng" step="any" placeholder="Longitude (optional)">
+      <button onclick="saveLocation()">Save Location</button>
+      <p id="upStatus" style="margin-top:6px; font-size:12px; color:#555;"></p>
+    </div>
+
+    <h3>Evidence at locations</h3>
+    <div id="evidenceList">
+      <p class="no-location">Select a case to view evidence</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="map.js"></script>
+</body>
+</html>

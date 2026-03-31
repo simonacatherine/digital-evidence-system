@@ -7,7 +7,8 @@ const { authorize } = require("../middlewares/roleMiddleware");
 const {
   uploadEvidence,
   getEvidenceList,
-  viewEvidence
+  viewEvidence,
+  updateLocation
 } = require("../controllers/evidenceController");
 const ROLES = require("../config/roles");
 
@@ -31,6 +32,15 @@ router.get(
   authenticate,
   authorize(Object.values(ROLES)),
   viewEvidence
+);
+
+// PATCH /evidence/:id/location
+// Allows investigator to add/update location on existing evidence
+router.patch(
+  "/:id/location",
+  authenticate,
+  authorize([ROLES.ADMIN, ROLES.INVESTIGATING_OFFICER]),
+  updateLocation
 );
 
 module.exports = router;
